@@ -20,8 +20,6 @@ import tempfile
 from pathlib import Path
 
 
-
-
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -109,19 +107,18 @@ def main() -> int:
     timer.setInterval(150)
     timer.timeout.connect(pump)
     timer.start()
+
     def cleanup(*windows) -> None:
-    """Explicitly release Qt widgets and timers before Python exits."""
-    timer.stop()
-
-    for widget in windows:
-        if widget is not None:
-            widget.close()
-            widget.deleteLater()
-
-    app.processEvents()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    app.processEvents()
-    app.quit()
+        """Explicitly release Qt widgets and timers before Python exits."""
+        timer.stop()
+        for widget in windows:
+            if widget is not None:
+                widget.close()
+                widget.deleteLater()
+        app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        app.quit()
 
     import app as smartpos_app
 
@@ -168,7 +165,8 @@ def main() -> int:
            f"invoices={inv[0]} total_piasters={inv[1]} stock_after={stock}")
 
     before = set(Path(window.backup_folder).glob("SmartPOS_backup_*.db"))
-    ok = window.create_backup(show_message=True); app.processEvents()
+    ok = window.create_backup(show_message=True)
+    app.processEvents()
     after = set(Path(window.backup_folder).glob("SmartPOS_backup_*.db"))
     record("backup can be invoked", bool(ok) and len(after) > len(before),
            f"{len(after - before)} new backup file(s) in {window.backup_folder}")
@@ -177,31 +175,30 @@ def main() -> int:
     record("log file written to user-data dir", (database.LOG_DIR / "smartpos.log").exists())
 
     window.close()
-window.deleteLater()
-app.processEvents()
-QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-app.processEvents()
+    window.deleteLater()
+    app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    app.processEvents()
+    record("application closes cleanly", True)
 
-record("application closes cleanly", True)
+    # Second start against the SAME data directory (existing DB must be reused, not replaced).
+    state["login_shot"] = False
+    window2 = launch()
 
-# Second start against the SAME data directory.
-state["login_shot"] = False
-window2 = launch()
+    with database.get_connection() as con:
+        inv2 = con.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+        users2 = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
-with database.get_connection() as con:
-    inv2 = con.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
-    users2 = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    record(
+        "restart reuses existing database without errors",
+        not getattr(window2, "_login_cancelled", True)
+        and inv2 == 1
+        and users2 == 1,
+        f"invoices={inv2} users={users2}",
+    )
 
-record(
-    "restart reuses existing database without errors",
-    not getattr(window2, "_login_cancelled", True)
-    and inv2 == 1
-    and users2 == 1,
-    f"invoices={inv2} users={users2}",
-)
-
-cleanup(window2)
-return finish(out)
+    cleanup(window2)
+    return finish(out)
 
 
 def finish(out: Path) -> int:

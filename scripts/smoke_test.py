@@ -36,6 +36,15 @@ def record(name: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" - {detail}" if detail else ""), flush=True)
 
 
+def finish(out: Path) -> int:
+    failed = [r for r in RESULTS if not r[1]]
+    (out / "smoke_results.json").write_text(
+        json.dumps([{"check": n, "passed": ok, "detail": d} for n, ok, d in RESULTS],
+                    ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=str(ROOT / "smoke_output"))
@@ -108,56 +117,84 @@ def main() -> int:
     timer.timeout.connect(pump)
     timer.start()
 
-    def cleanup(*windows) -> None:
-        """Explicitly release Qt widgets and timers before Python exits."""
-        timer.stop()
-        for widget in windows:
-            if widget is not None:
+    def cleanup(*windows, final: bool = False) -> None:
+        """Explicitly release Qt widgets; final=True stops the shared timer and quits the app."""
+        if final:
+            print("[DIAG] cleanup: stopping timer", flush=True)
+            timer.stop()
+        else:
+            print("[DIAG] cleanup: preserving shared timer for the next login automation pass", flush=True)
+        for index, widget in enumerate(windows, start=1):
+            if widget is None:
+                print(f"[DIAG] cleanup: window {index} is None; skipping", flush=True)
+                continue
+            print(f"[DIAG] cleanup: closing window {index}", flush=True)
+            try:
                 widget.close()
+            except Exception as exc:  # pragma: no cover - diagnostic only
+                print(f"[DIAG] cleanup: close failed for window {index}: {exc}", flush=True)
+            print(f"[DIAG] cleanup: deleteLater window {index}", flush=True)
+            try:
                 widget.deleteLater()
+            except Exception as exc:  # pragma: no cover - diagnostic only
+                print(f"[DIAG] cleanup: deleteLater failed for window {index}: {exc}", flush=True)
+        print("[DIAG] cleanup: processing pending Qt events before deferred delete", flush=True)
         app.processEvents()
+        print("[DIAG] cleanup: sending QEvent.DeferredDelete", flush=True)
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        print("[DIAG] cleanup: processing pending Qt events after deferred delete", flush=True)
         app.processEvents()
-        app.quit()
+        if final:
+            print("[DIAG] cleanup: quitting app", flush=True)
+            app.quit()
 
     import app as smartpos_app
 
     def launch():
-        w = smartpos_app.SmartPOS()
-        return w
+        return smartpos_app.SmartPOS()
 
     window = launch()
-    record("login screen appeared and login succeeded",
-           state["login_shot"] and not getattr(window, "_login_cancelled", True))
+    record(
+        "login screen appeared and login succeeded",
+        state["login_shot"] and not getattr(window, "_login_cancelled", True),
+    )
     if getattr(window, "_login_cancelled", True):
+        print("[DIAG] early login-failure path: cleaning up first window before finish", flush=True)
+        cleanup(window)
         return finish(out)
     window.show()
     app.processEvents()
     record("main window opens", window.isVisible(), window.windowTitle())
 
-    window.show_home(); app.processEvents()
+    window.show_home()
+    app.processEvents()
     window.grab().save(str(out / "dashboard.png"))
     record("dashboard loads", window.pages.currentWidget() is window.home_page)
 
     with database.get_connection() as con:
         from services.shifts import open_shift
         open_shift(con, user=window.current_user, opening_cash=10000)
-    window.show_cashier(); app.processEvents()
+    window.show_cashier()
+    app.processEvents()
     window.grab().save(str(out / "pos.png"))
     record("POS screen opens", window.pages.currentWidget() is window.cashier_page)
 
-    window.show_products(); app.processEvents()
+    window.show_products()
+    app.processEvents()
     window.grab().save(str(out / "products.png"))
     with database.get_connection() as con:
         n = con.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     rows = window.products_table.rowCount() if hasattr(window, "products_table") else n
     record("products load", n >= 1 and rows >= 1, f"{rows} row(s) in table")
 
-    window.show_cashier(); app.processEvents()
-    window.add_product_to_cart(pid); app.processEvents()
+    window.show_cashier()
+    app.processEvents()
+    window.add_product_to_cart(pid)
+    app.processEvents()
     record("product added to cart", pid in window.cart and window.cart[pid]["quantity"] == 1)
     window.paid_input.setValue(100)
-    window.checkout(); app.processEvents()
+    window.checkout()
+    app.processEvents()
     with database.get_connection() as con:
         inv = con.execute("SELECT COUNT(*), COALESCE(SUM(total),0) FROM invoices").fetchone()
         stock = con.execute("SELECT stock_quantity FROM products WHERE id=?", (pid,)).fetchone()[0]
@@ -174,11 +211,8 @@ def main() -> int:
            ROOT not in Path(window.backup_folder).resolve().parents)
     record("log file written to user-data dir", (database.LOG_DIR / "smartpos.log").exists())
 
-    window.close()
-    window.deleteLater()
-    app.processEvents()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    app.processEvents()
+    print("[DIAG] cleanup: first window before second launch", flush=True)
+    cleanup(window)
     record("application closes cleanly", True)
 
     # Second start against the SAME data directory (existing DB must be reused, not replaced).
@@ -197,7 +231,8 @@ def main() -> int:
         f"invoices={inv2} users={users2}",
     )
 
-    cleanup(window2)
+    print("[DIAG] cleanup: second window before finish", flush=True)
+    cleanup(window2, final=True)
     return finish(out)
 
 
@@ -205,12 +240,10 @@ def finish(out: Path) -> int:
     failed = [r for r in RESULTS if not r[1]]
     (out / "smoke_results.json").write_text(
         json.dumps([{"check": n, "passed": ok, "detail": d} for n, ok, d in RESULTS],
-                   ensure_ascii=False, indent=2), encoding="utf-8")
+                    ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")
     return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    code = main()
-    sys.stdout.flush()
-    os._exit(code)
+    raise SystemExit(main())

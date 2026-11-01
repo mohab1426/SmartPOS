@@ -117,27 +117,30 @@ def main() -> int:
     timer.timeout.connect(pump)
     timer.start()
 
-    def cleanup(*windows, final: bool = False) -> None:
-        """Explicitly release Qt widgets; final=True stops the shared timer and quits the app."""
-        if final:
-            print("[DIAG] cleanup: stopping timer", flush=True)
-            timer.stop()
-        else:
-            print("[DIAG] cleanup: preserving shared timer for the next login automation pass", flush=True)
+    def cleanup(*windows, final: bool = False) -> bool:
+        """Explicitly release Qt widgets; final=True stops the shared timer after close/deferred-delete processing."""
+        success = True
         for index, widget in enumerate(windows, start=1):
             if widget is None:
                 print(f"[DIAG] cleanup: window {index} is None; skipping", flush=True)
+                success = False
                 continue
             print(f"[DIAG] cleanup: closing window {index}", flush=True)
             try:
-                widget.close()
+                closed = widget.close()
+                if closed is False:
+                    print(f"[DIAG] cleanup: widget.close() returned False for window {index}", flush=True)
+                    success = False
             except Exception as exc:  # pragma: no cover - diagnostic only
                 print(f"[DIAG] cleanup: close failed for window {index}: {exc}", flush=True)
+                success = False
+                closed = False
             print(f"[DIAG] cleanup: deleteLater window {index}", flush=True)
             try:
                 widget.deleteLater()
             except Exception as exc:  # pragma: no cover - diagnostic only
                 print(f"[DIAG] cleanup: deleteLater failed for window {index}: {exc}", flush=True)
+                success = False
         print("[DIAG] cleanup: processing pending Qt events before deferred delete", flush=True)
         app.processEvents()
         print("[DIAG] cleanup: sending QEvent.DeferredDelete", flush=True)
@@ -145,8 +148,11 @@ def main() -> int:
         print("[DIAG] cleanup: processing pending Qt events after deferred delete", flush=True)
         app.processEvents()
         if final:
+            print("[DIAG] cleanup: stopping timer", flush=True)
+            timer.stop()
             print("[DIAG] cleanup: quitting app", flush=True)
             app.quit()
+        return success
 
     import app as smartpos_app
 
@@ -160,7 +166,7 @@ def main() -> int:
     )
     if getattr(window, "_login_cancelled", True):
         print("[DIAG] early login-failure path: cleaning up first window before finish", flush=True)
-        cleanup(window)
+        cleanup(window, final=True)
         return finish(out)
     window.show()
     app.processEvents()
@@ -212,8 +218,8 @@ def main() -> int:
     record("log file written to user-data dir", (database.LOG_DIR / "smartpos.log").exists())
 
     print("[DIAG] cleanup: first window before second launch", flush=True)
-    cleanup(window)
-    record("application closes cleanly", True)
+    first_window_clean = cleanup(window)
+    record("application closes cleanly", first_window_clean)
 
     # Second start against the SAME data directory (existing DB must be reused, not replaced).
     state["login_shot"] = False
@@ -232,7 +238,8 @@ def main() -> int:
     )
 
     print("[DIAG] cleanup: second window before finish", flush=True)
-    cleanup(window2, final=True)
+    second_window_clean = cleanup(window2, final=True)
+    record("application closes cleanly after restart", second_window_clean)
     return finish(out)
 
 

@@ -236,14 +236,5 @@ def main() -> int:
     return finish(out)
 
 
-def finish(out: Path) -> int:
-    failed = [r for r in RESULTS if not r[1]]
-    (out / "smoke_results.json").write_text(
-        json.dumps([{"check": n, "passed": ok, "detail": d} for n, ok, d in RESULTS],
-                    ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")
-    return 1 if failed else 0
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -19,7 +19,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox, QPushButton, QLabel
+
 
 
 if hasattr(sys.stdout, "reconfigure"):

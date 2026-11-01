@@ -18,6 +18,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox, QPushButton, QLabel
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -74,27 +75,33 @@ def main() -> int:
 
     app = QApplication.instance() or QApplication(sys.argv)
     state = {"login_shot": False, "messages": []}
+def pump() -> None:
+    """Handle modal windows: log in through the real dialog, dismiss message boxes."""
+    modal = QApplication.activeModalWidget()
+    if modal is None:
+        return
 
-    def pump() -> None:
-        """Handle modal windows: log in through the real dialog, dismiss message boxes."""
-        modal = QApplication.activeModalWidget()
-        if modal is None:
-            return
-        if isinstance(modal, QMessageBox):
-            state["messages"].append((modal.windowTitle(), modal.text()))
-            modal.accept()
-        elif isinstance(modal, QDialog):
-            edits = modal.findChildren(QLineEdit)
-            if len(edits) >= 2 and not state["login_shot"]:
-                modal.grab().save(str(out / "login.png"))
-                state["login_shot"] = True
-                edits[0].setText(ADMIN_USER)
-                edits[1].setText(ADMIN_PASS)
-                for btn in modal.findChildren(QPushButton):
-                    if btn.objectName() == "Primary":
-                        btn.click()
-                        break
+    if isinstance(modal, QMessageBox):
+        state["messages"].append((modal.windowTitle(), modal.text()))
+        modal.accept()
 
+    elif isinstance(modal, QDialog):
+        edits = modal.findChildren(QLineEdit)
+
+        if len(edits) >= 2 and not state["login_shot"]:
+            modal.grab().save(str(out / "login.png"))
+            state["login_shot"] = True
+
+            edits[0].setText(ADMIN_USER)
+            edits[1].setText(ADMIN_PASS)
+
+            submit = modal.findChild(QPushButton, "LoginPrimary")
+
+            if submit is not None:
+                submit.click()
+            else:
+                state["login_error"] = "LoginPrimary button not found"
+                print("[FAIL] LoginPrimary button not found", flush=True)
     timer = QTimer()
     timer.setInterval(150)
     timer.timeout.connect(pump)

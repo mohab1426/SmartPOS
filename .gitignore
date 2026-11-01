@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime user data / secrets
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+backup_settings.json
+backups/
+logs/
+
+# Build artifacts
+build/
+dist/
+*.spec.bak
+*.exe
+*.pkg
+
+# Local tooling
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

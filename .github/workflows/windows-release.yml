@@ -1,0 +1,25 @@
+name: Windows release build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build, test, smoke-test, package
+        shell: pwsh
+        run: ./build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SmartPOS_Windows_Release
+          path: |
+            release/SmartPOS_Windows_Release.zip
+            release/SHA256SUMS.txt
+            release/build_env.txt
+            release/smoke/**

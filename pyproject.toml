@@ -1,0 +1,18 @@
+[project]
+name = "smartpos"
+version = "1.1.0rc2"
+description = "Arabic RTL desktop point-of-sale and inventory application"
+requires-python = ">=3.10"
+dependencies = ["PySide6==6.8.2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["tests", "."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F"]
